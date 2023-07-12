@@ -5,6 +5,8 @@
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/filters/voxel_grid.h> // ダウンサンプリング用
 #include <iostream>
+#include <string>
+#include <std_msgs/msg/string.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 
 class Kd_tree : public rclcpp::Node
@@ -16,19 +18,22 @@ class Kd_tree : public rclcpp::Node
 "/camera/depth/color/points", 1, std::bind(&Kd_tree::callback, this, std::placeholders::_1));
 	  // Twist型のメッセージをpublishするためのPublisherを宣言
 	  publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 1);
+	  obst_publisher_ = this->create_publisher<std_msgs::msg::String>("/obstacle", 10);
   	}
   private:
     void callback(const sensor_msgs::msg::PointCloud2::SharedPtr pc2);
+	void publish_obstacle();
 	rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_;
 	// Twist型のメッセージをpublishするためのPublisherを宣言
 	rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
+	rclcpp::Publisher<std_msgs::msg::String>::SharedPtr obst_publisher_;
 };
 
 void Kd_tree::callback(const sensor_msgs::msg::PointCloud2::SharedPtr pc2) {
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_nan (new pcl::PointCloud<pcl::PointXYZ>); // NaN値あり
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>); // NaN値なし
 	pcl::VoxelGrid<pcl::PointXYZ> vg_; // ダウンサンプリング用
-	double leaf_size = 0.5; // ダウンサンプリングの解像度[m]
+	double leaf_size = 0.05; // ダウンサンプリングの解像度[m]
 
 	auto twist = geometry_msgs::msg::Twist(); // Twist型の変数を宣言
 	twist.linear.x = 0.0;
@@ -71,11 +76,19 @@ void Kd_tree::callback(const sensor_msgs::msg::PointCloud2::SharedPtr pc2) {
 	RCLCPP_INFO(this->get_logger(), "A nearest point of (0.5, 0.5) is...\nx: %lf, y:%lf, z:%lf", result.x, result.y, result.z);
 
 	if(result.z < 0.2) {
-	RCLCPP_INFO(this->get_logger(), "Obstacle distance is less than 0.20[m]");
+		RCLCPP_INFO(this->get_logger(), "Obstacle distance is less than 0.20[m]");
 
-	//速度を0にする
-	publisher_->publish(twist);
+		//速度を0にする
+		publisher_->publish(twist);
+		//障害物が近いことを知らせる
+		publish_obstacle();
 	};
+}
+
+void Kd_tree::publish_obstacle() {
+	auto msg = std_msgs::msg::String();
+	msg.data = "Warning! Obstacle is too close!";
+	obst_publisher_->publish(msg);
 }
 
 int main(int argc, char** argv){
